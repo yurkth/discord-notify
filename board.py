@@ -1,5 +1,7 @@
+import html
 import os
 import re
+import traceback
 from datetime import datetime
 from time import sleep
 
@@ -9,27 +11,37 @@ from dhooks import Embed, Webhook
 auth_info = (os.environ["BOARD_ID"], os.environ["BOARD_PASS"])
 
 
+def get_html(url, timeout=10.0):
+    """
+    URLのHTMLを返す
+    """
+    res = requests.get(url, timeout=timeout, auth=auth_info)
+    res.raise_for_status()
+    res.encoding = res.apparent_encoding
+    sleep(1)  # アクセス過多の回避
+    return res.text
+
+
 def generate_embed(url):
     """
     URLのページを確認してEmbedに整形する
     """
-    res = requests.get(url, auth=auth_info, timeout=10.0)
-    res.encoding = res.apparent_encoding
+    article_html = html.unescape(get_html(url))
 
     # 記事の本文
     body = re.search(
         "<!-- begin text -->\r\n(.+?)<!-- end text -->",
-        res.text,
+        re.sub("<[^<>!]*>", "__", article_html),
         flags=(re.MULTILINE | re.DOTALL),
     ).group(1)
     embed = Embed(description=body, color=0x7E6CA8)
 
     # 記事の詳細
-    field = dict(re.findall("(.+?): (.+?)<BR>", res.text))
+    field = dict(re.findall("(.+?): (.+?)<BR>", article_html))
     if title := field.get("Subject"):
         embed.set_title(title=f":newspaper: {title}", url=url)
     if author := field.get("From"):
-        embed.set_author(name=author.split("&")[0], icon_url=os.environ["FAVICON_URL"])
+        embed.set_author(name=author.split("<")[0], icon_url=os.environ["FAVICON_URL"])
     if date := field.get("Date"):
         embed.set_footer(date)
     if reference := field.get("Reference"):
@@ -62,29 +74,20 @@ def notify():
     year = now.year if (now := datetime.now()).month >= 4 else now.year - 1  # 年度
     url = f"{os.environ['BOARD_URL']}{year}/boards/new.html"
     try:
-        res = requests.get(url, auth=auth_info, timeout=10.0)
-    except Exception as e:
-        hook.send(f"ERROR: {e}")
-        return
-    sleep(1)
-    if (status := res.status_code) != requests.codes.ok:
-        hook.send(f"Status code is {status}")
-        return
-    res.encoding = res.apparent_encoding
-    all_articles = re.findall('<A HREF="(.+?)"', res.text)
+        articles_html = get_html(url)
+        all_articles = re.findall('<A HREF="(.+?)"', articles_html)
 
-    # 更新分の取得
-    with open("latest", "r") as f:
-        latest_article = f.read()
-    updated_articles = all_articles[: all_articles.index(latest_article)]
-    if not updated_articles:
-        return
-    try:
+        # 更新分の取得
+        with open("latest", "r") as f:
+            latest_article = f.read()
+        updated_articles = all_articles[: all_articles.index(latest_article)]
+        if not updated_articles:
+            return
+
         for article in reversed(updated_articles):
             hook.send(embed=generate_embed(requests.compat.urljoin(url, article)))
-            sleep(1)
-    except Exception as e:
-        hook.send(f"ERROR: {e}")
+    except Exception:
+        hook.send(traceback.format_exc())
         return
 
     with open("latest", "w") as f:
