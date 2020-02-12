@@ -34,6 +34,10 @@ def generate_embed(url):
         re.sub("<[^<>!]*>", "__", article_html),
         flags=(re.MULTILINE | re.DOTALL),
     ).group(1)
+    # 文字数制限の回避(本文以外の制限は超えることがないので省略)
+    # https://discordjs.guide/popular-topics/embeds.html#embed-limits
+    if len(body) > 2048:
+        body = body[:2014] + "…\n:warning:文字数が2048文字を超えたため省略されました"
     embed = Embed(description=body, color=0x7E6CA8)
 
     # 記事の詳細
@@ -68,7 +72,6 @@ def generate_embed(url):
 
 def notify():
     hook = Webhook(os.environ["DISCORD_WEBHOOK_URL"])
-    # hook.send("@everyone")  # iPhoneで通知のバッチを付ける用
 
     # 記事一覧を取得
     year = now.year if (now := datetime.now()).month >= 4 else now.year - 1  # 年度
@@ -84,6 +87,7 @@ def notify():
         if not updated_articles:
             return
 
+        # hook.send("@everyone")  # iPhoneで通知のバッチを付ける用
         for article in reversed(updated_articles):
             hook.send(embed=generate_embed(requests.compat.urljoin(url, article)))
     except Exception:
