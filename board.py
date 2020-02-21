@@ -83,7 +83,11 @@ def notify():
         # 更新分の取得
         with open("latest", "r") as f:
             latest_article = f.read()
-        updated_articles = all_articles[: all_articles.index(latest_article)]
+        if latest_article in all_articles:
+            updated_articles = all_articles[: all_articles.index(latest_article)]
+        else:
+            hook.send("直近の掲示が削除されたため、最新の掲示を1つ通知します")
+            updated_articles = [all_articles[0]]
         if not updated_articles:
             return
 
